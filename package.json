@@ -1,8 +1,8 @@
 {
-  "name": "scrappy-doo",
+  "name": "scrappy-dont",
   "version": "1.0.0",
   "description": "Scrapping away at internet things",
-  "main": "scrappydoo.js",
+  "main": "scrappydont.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
