@@ -18,7 +18,7 @@ fs.unlink(__dirname + "/img-sizes.txt", function(err) {
 
 global_settings.urlToSearch = rl.question("Enter the url to search: ");
 
-global_settings.domain = rl.question("Set the domain? (Press enter if search url is the domain)");
+global_settings.domain = rl.question("Set the domain? (Press enter if search url is the domain) ");
 
 if(global_settings.domain == '') {
 		global_settings.domain = global_settings.urlToSearch;
