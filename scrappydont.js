@@ -4,44 +4,40 @@ var fs = require('fs');
 var _ = require('lodash');
 var http = require('http');
 var https = require('https');
-var readline = require('readline');
+var rl = require('readline-sync');
 var size = require('request-image-size');
+
+var global_settings = {
+	domain: '',
+	urlToSearch: ''
+};
 
 fs.unlink(__dirname + "/img-sizes.txt", function(err) {
 	//console.log(err);
 });
 
-var rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
+global_settings.urlToSearch = rl.question("Enter the url to search: ");
+
+global_settings.domain = rl.question("Set the domain? (Press enter if search url is the domain)");
+
+if(global_settings.domain == '') {
+		global_settings.domain = global_settings.urlToSearch;
+}
+
+searchUrlAndParseForImages(global_settings)
+.then(logTotalImages)
+.then(logImagesWithQueryParams)
+.then(evaluateAllImages)
+.then(collectImageRequestTasks)
+.then(completeImageTaskList)
+.then(logImageSizes)
+.catch(function(err) {
+	console.log(err);
 });
 
-rl.setPrompt("Enter the url to search: ");
-rl.prompt();
-
-rl
-.on('line', function(urlToSearch) {
-	searchUrlAndParseForImages(urlToSearch)
-	.then(logTotalImages)
-	.then(logImagesWithQueryParams)
-	.then(evaluateAllImages)
-	.then(collectImageRequestTasks)
-	.then(completeImageTaskList)
-	.then(logImageSizes)
-	.then(function() {
-		rl.close();
-	})
-	.catch(function(err) {
-		console.log(err);
-	});
-})
-.on('close', function() {
-	console.log("Thanks!");
-	process.exit(0);
-});
 function searchUrlAndParseForImages(urlToSearch) {
 	var options = {
-		uri: urlToSearch.trim(),
+		uri: global_settings.urlToSearch.trim(),
 	    transform: function (body) {
 	        return cheerio.load(body);
 	    }
@@ -50,10 +46,10 @@ function searchUrlAndParseForImages(urlToSearch) {
 	return new Promise(function(resolve, reject) {
 		rp(options)
 		.then(function($) {
-			var domainName = urlToSearch;
-			if(_.endsWith(urlToSearch, '/')) {
-				var endIndex = urlToSearch.lastIndexOf('/');
-				domainName = urlToSearch.slice(0, endIndex);
+			var domainName = global_settings.domain;
+			if(_.endsWith(domainName, '/')) {
+				var endIndex = global_settings.domain.lastIndexOf('/');
+				domainName = global_settings.domain.slice(0, endIndex);
 			}
 			var imageData = $('img');
 			var images = { 
@@ -61,6 +57,10 @@ function searchUrlAndParseForImages(urlToSearch) {
 				domain: domainName
 			}
 			resolve(images);
+		})
+		.catch(function(e) {
+			console.log(e);
+			reject(e);
 		});
 	});
 	
@@ -70,6 +70,10 @@ function logTotalImages(images) {
 	return new Promise(function(resolve, reject) {
 		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
 		logStream.write("Total images: " + images.imageData.length + "\r\n");
+		logStream.on('error', function(e) {
+			console.log(e);
+			reject(e);
+		});
 		logStream.end(function() {
 			resolve(images);
 		});
@@ -92,6 +96,12 @@ function logImagesWithQueryParams(images) {
 				}
 			}
 		}
+
+		logStream.on('error', function(e) {
+			console.log(e);
+			reject(e);
+		});
+
 		logStream.end(function() {
 			resolve(images);
 		});
@@ -113,11 +123,17 @@ function evaluateAllImages(images) {
 			if (images.imageData[val].type === 'tag' && images.imageData[val].attribs.src) {
 				rawLink = images.imageData[val].attribs.src;
 				console.log("Evaluating " + rawLink);
-				if(_.startsWith(rawLink, '//')) {
-					rawLink = 'https:' + rawLink;
-					if(_.includes(rawLink, '?')) {
-						endIndex = rawLink.indexOf('?');
-						linkNoQueryParams = rawLink.slice(0, endIndex);
+				if(_.startsWith(rawLink, 'http') || _.startsWith(rawLink, 'https')) {
+					linkAndDomain = {
+							link: rawLink,
+							domain: images.domain
+					}
+					linkArr.push(linkAndDomain);
+				} else if(_.startsWith(rawLink, '//cdn')) {
+					fullLink = 'https:' + rawLink;
+					if(_.includes(fullLink, '?')) {
+						endIndex = fullLink.indexOf('?');
+						linkNoQueryParams = fullLink.slice(0, endIndex);
 						console.log("Query parameters chopped right off: ");
 						console.log(linkNoQueryParams);
 						linkAndDomain = {
@@ -129,12 +145,31 @@ function evaluateAllImages(images) {
 						linkArr.push(linkAndDomain);
 					} else {
 						linkAndDomain = {
-							link: rawLink,
+							link: fullLink,
 							domain: images.domain
 						}
 						linkArr.push(linkAndDomain);
 					}
-				} else if(!_.startsWith(rawLink, '//')) {
+				} else if(_.startsWith(rawLink, '..')) {
+					var regex = new RegExp('[a-zA-Z]');
+					var result = rawLink.match(regex);
+					var slicedLink = rawLink.slice(result.index, rawLink.length);
+					link = images.domain + '/' + slicedLink;
+					console.log(link);
+					linkAndDomain = {
+						relativeLink: rawLink,
+						link: link,
+						domain: images.domain
+					};
+					linkArr.push(linkAndDomain);
+				} else if(_.startsWith(rawLink, '//')) {
+					fullLink = 'https:' + rawLink;
+					linkAndDomain = {
+							link: fullLink,
+							domain: images.domain
+					}
+					linkArr.push(linkAndDomain);
+				} else if(!_.startsWith(rawLink, 'http') || !_.startsWith(rawLink, 'https')) {
 					console.log("Link with added domain: ");
 					link = images.domain + rawLink;
 					console.log(link);
@@ -148,6 +183,7 @@ function evaluateAllImages(images) {
 				}
 			}
 		}
+		console.log(linkArr);
 		resolve(linkArr);
 	});
 }
@@ -161,8 +197,9 @@ function collectImageRequestTasks(linkArr) {
 				    method: 'GET',
 				    url: linkArr[val].link,
 				}
-				console.log("Pushing tasks into place...")
+				console.log("Tasks falling into place...")
 				var promised = new Promise(function(resolve, reject) {
+					
 					var imageComposite = {
 						domain: linkArr[val].domain,
 						link: linkArr[val].link
@@ -170,15 +207,24 @@ function collectImageRequestTasks(linkArr) {
 					if(linkArr[val].resized) {
 						imageComposite.resized = linkArr[val].resized;
 					}
+					if(linkArr[val].relativeLink) {
+						imageComposite.relativeLink = linkArr[val].relativeLink;
+					}
 					size(options, function(err, dimensions, length) {
-						console.log(dimensions);
-						console.log(imageComposite.link);
-							// path: response.socket._httpMessage.path,
-							// width: size.width,
-							// height: size.height,
-						imageComposite.dimensions = dimensions;	
-						console.log(options.url);
-						resolve(imageComposite);
+						if(err || dimensions == undefined) {
+							console.log(err);
+							imageComposite.error = err;
+							resolve(imageComposite);
+						} else{
+							console.log(dimensions);
+							console.log(imageComposite.link);
+								// path: response.socket._httpMessage.path,
+								// width: size.width,
+								// height: size.height,
+							imageComposite.dimensions = dimensions;	
+							console.log(options.url);
+							resolve(imageComposite);
+						}
 					});
 				});
 				tasks.push(promised);
@@ -204,16 +250,37 @@ function logImageSizes(imageObjects) {
 		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
 		for(val in imageObjects) {
 			logStream.write("Link: " + imageObjects[val].link + "\r\n");
+
 			if(imageObjects[val].resized) {
-				logStream.write("Image contains possible resizing query parameter: " + imageObjects[val].resized + "\r\n");
+				logStream.write("Image contains possible resizing query parameter:\r\n");
+				logStream.write(imageObjects[val].resized + "\r\n");
 			}
-			logStream.write("Dimensions: \r\n");
-			logStream.write("\tHeight: " + imageObjects[val].dimensions.height + " \r\n");
-			logStream.write("\tWidth: " + imageObjects[val].dimensions.width + " \r\n");
-			logStream.write("Image Type: " + imageObjects[val].dimensions.type + " \r\n");
-			logStream.write("Image Domain: " + imageObjects[val].domain + " \r\n");
-			logStream.write("********************\r\n");
+
+			if(imageObjects[val].relativeLink) {
+				logStream.write("Consider removing relative links from <img> tags: \r\n");
+				logStream.write(imageObjects[val].relativeLink + "\r\n");
+			}
+
+			if(imageObjects[val].dimensions) {
+				logStream.write("Dimensions: \r\n");
+				logStream.write("\tHeight: " + imageObjects[val].dimensions.height + " \r\n");
+				logStream.write("\tWidth: " + imageObjects[val].dimensions.width + " \r\n");
+				logStream.write("Image Type: " + imageObjects[val].dimensions.type + " \r\n");
+				logStream.write("********************\r\n");
+			}
+
+			if(imageObjects[val].error) {
+				logStream.write("Error: \r\n");
+				logStream.write(imageObjects[val].error + "\r\n");
+				logStream.write("********************\r\n");
+			}
 		}
+		
+		logStream.on('error', function(err) {
+			console.log(err);
+			reject(err);
+		});
+
 		logStream.end(function() {
 			resolve("Done");
 		});
