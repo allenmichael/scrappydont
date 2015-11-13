@@ -1,6 +1,7 @@
 var rp = require('request-promise');
 var cheerio = require('cheerio');
 var fs = require('fs');
+var path = require('path');
 var _ = require('lodash');
 var http = require('http');
 var https = require('https');
@@ -13,10 +14,6 @@ var global_settings = {
 	fileName: ''
 };
 
-fs.unlink(__dirname + "/img-sizes.txt", function(err) {
-	//console.log(err);
-});
-
 global_settings.urlToSearch = rl.question("Enter the url to search: ");
 
 global_settings.domain = rl.question("Set the domain? (Press enter if search url is the domain) ");
@@ -24,6 +21,10 @@ global_settings.domain = rl.question("Set the domain? (Press enter if search url
 if(global_settings.domain == '') {
 		global_settings.domain = global_settings.urlToSearch;
 }
+
+global_settings.fileName = global_settings.urlToSearch.replace(/[\/\\\:\!]+/g, '.').replace(/\.+/, '.').replace(/\?.*/, '');
+global_settings.fileName = path.resolve('.', global_settings.fileName + '.txt');
+console.log(global_settings.fileName);
 
 searchUrlAndParseForImages(global_settings)
 .then(logTotalImages)
@@ -69,7 +70,7 @@ function searchUrlAndParseForImages(urlToSearch) {
 
 function logTotalImages(images) {
 	return new Promise(function(resolve, reject) {
-		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
+		var logStream = fs.createWriteStream(global_settings.fileName, {'flags': 'a'});
 		logStream.write("Searched URL: " + global_settings.urlToSearch + "\r\n");
 		logStream.write("Total images: " + images.imageData.length + "\r\n");
 		logStream.on('error', function(e) {
@@ -85,7 +86,7 @@ function logTotalImages(images) {
 function logImagesWithQueryParams(images) {
 	console.log("Logging images with query parameters...");
 	return new Promise(function(resolve, reject) {
-		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
+		var logStream = fs.createWriteStream(global_settings.fileName, {'flags': 'a'});
 		logStream.write("The following links contain query parameters that may limit their size:\r\n");
 		var rawLink = '';
 
@@ -120,8 +121,9 @@ function evaluateAllImages(images) {
 		var linkNoQueryParams = '';
 		var link = '';
 		var linkAndDomain = {};
+		var fullLink = ""
 		console.log("Evaluating images...")
-		for (val in images.imageData) {
+		for (var val in images.imageData) {
 			if (images.imageData[val].type === 'tag' && images.imageData[val].attribs.src) {
 				rawLink = images.imageData[val].attribs.src;
 				console.log("Evaluating " + rawLink);
@@ -193,7 +195,7 @@ function evaluateAllImages(images) {
 function collectImageRequestTasks(linkArr) {
 	return new Promise(function(resolve, reject) {
 		var tasks = [];
-		for(val in linkArr) {
+		for(var val in linkArr) {
 			if(linkArr[val].link) {
 				var options = {
 				    method: 'GET',
@@ -249,8 +251,8 @@ function completeImageTaskList(tasks) {
 
 function logImageSizes(imageObjects) {
 	return new Promise(function(resolve, reject) {
-		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
-		for(val in imageObjects) {
+		var logStream = fs.createWriteStream(global_settings.fileName, {'flags': 'a'});
+		for(var val in imageObjects) {
 			logStream.write("Link: " + imageObjects[val].link + "\r\n");
 
 			if(imageObjects[val].resized) {
