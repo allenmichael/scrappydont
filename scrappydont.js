@@ -9,7 +9,8 @@ var size = require('request-image-size');
 
 var global_settings = {
 	domain: '',
-	urlToSearch: ''
+	urlToSearch: '',
+	fileName: ''
 };
 
 fs.unlink(__dirname + "/img-sizes.txt", function(err) {
@@ -69,6 +70,7 @@ function searchUrlAndParseForImages(urlToSearch) {
 function logTotalImages(images) {
 	return new Promise(function(resolve, reject) {
 		var logStream = fs.createWriteStream('img-sizes.txt', {'flags': 'a'});
+		logStream.write("Searched URL: " + global_settings.urlToSearch + "\r\n");
 		logStream.write("Total images: " + images.imageData.length + "\r\n");
 		logStream.on('error', function(e) {
 			console.log(e);
